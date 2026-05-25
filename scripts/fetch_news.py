@@ -3,12 +3,22 @@ import json
 import requests
 from bs4 import BeautifulSoup
 import sys
+import io
 import time
 import re
 import concurrent.futures
 import os
 from datetime import datetime
 import subprocess
+
+# Windows console defaults to cp936/GBK; force UTF-8 so Chinese JSON output isn't mangled.
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # Headers for scraping to avoid basic bot detection
 HEADERS = {
