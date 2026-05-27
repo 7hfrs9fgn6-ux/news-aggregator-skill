@@ -8,7 +8,8 @@ import time
 import re
 import concurrent.futures
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 import subprocess
 
 # Windows console defaults to cp936/GBK; force UTF-8 so Chinese JSON output isn't mangled.
@@ -28,6 +29,24 @@ HEADERS = {
 from bs4 import XMLParsedAsHTMLWarning
 import warnings
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+def filter_by_hours(items, hours=24):
+    """Keep only items published within the last N hours.
+    Items whose time cannot be parsed are kept (fail-open)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    result = []
+    for item in items:
+        t = item.get('time', '')
+        try:
+            pub = parsedate_to_datetime(str(t))
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            if pub >= cutoff:
+                result.append(item)
+        except Exception:
+            result.append(item)  # unparseable → keep
+    return result
+
 
 def filter_items(items, keyword=None):
     if not keyword:
@@ -581,19 +600,28 @@ def fetch_infoq_cn(limit=5, keyword=None):
     return filter_items(fetch_rss_feed("https://www.infoq.cn/feed.xml", "InfoQ 中文", limit * 2)[:limit], keyword)
 
 
-def fetch_aihot(limit=5, keyword=None):
-    """AIHOT (aihot.virxact.com) AI 精选聚合，跨源中文编辑稿，日更 ~50 条。"""
-    return filter_items(fetch_rss_feed("https://aihot.virxact.com/rss", "AIHOT", limit * 2)[:limit], keyword)
+def fetch_aihot(limit=15, keyword=None):
+    """AIHOT (aihot.virxact.com) AI 精选聚合，跨源中文编辑稿，日更 ~50 条。
+    默认拉最近 24h 内容（日更源，50 条/天，取最多 limit 条）。"""
+    raw = fetch_rss_feed("https://aihot.virxact.com/rss", "AIHOT", max(limit * 4, 50))
+    items = filter_by_hours(raw, hours=24)
+    return filter_items(items[:limit], keyword)
 
 
-def fetch_tldr_ai(limit=5, keyword=None):
-    """TLDR AI 英文每日 AI 摘要，5-10 主题/期。"""
-    return filter_items(fetch_rss_feed("https://tldr.tech/api/rss/ai", "TLDR AI", limit * 2)[:limit], keyword)
+def fetch_tldr_ai(limit=3, keyword=None):
+    """TLDR AI 英文每日 AI 摘要，5-10 主题/期。
+    默认拉最近 48h（日刊时间戳为午夜 UTC，48h 确保任意时段都能拿到最新 1-2 期）。"""
+    raw = fetch_rss_feed("https://tldr.tech/api/rss/ai", "TLDR AI", limit * 4)
+    items = filter_by_hours(raw, hours=48)
+    return filter_items(items[:limit], keyword)
 
 
-def fetch_import_ai(limit=5, keyword=None):
-    """Import AI by Jack Clark（前 OpenAI/Anthropic 联创）周更深度评论。"""
-    return filter_items(fetch_rss_feed("https://importai.substack.com/feed", "Import AI", limit * 2)[:limit], keyword)
+def fetch_import_ai(limit=2, keyword=None):
+    """Import AI by Jack Clark（前 OpenAI/Anthropic 联创）周更深度评论。
+    默认拉最近 7 天（周刊，1 条 = 1 期 = 1 周），通常返回最新 1 期。"""
+    raw = fetch_rss_feed("https://importai.substack.com/feed", "Import AI", limit * 4)
+    items = filter_by_hours(raw, hours=168)  # 7 days
+    return filter_items(items[:limit], keyword)
 
 
 def fetch_user_feeds(limit=5, keyword=None):
